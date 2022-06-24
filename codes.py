@@ -3,9 +3,11 @@ from tidytext import unnest_tokens, bind_tf_idf
 from nltk.corpus import stopwords
 import string
 from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.decomposition import LatentDirichletAllocation
+import numpy as np
 
-
-path = 'C:\\Users\zsolt\Desktop\Szakszem\Szakdoga\OV_speeches.csv'
+path = 'C:\\Users\zsolt\Desktop\Szakdoga\OV_speeches.csv'
 new_dataset_df = pd.read_csv(path, encoding='latin1', sep=';')
 
 
@@ -52,7 +54,7 @@ frequency_df = pd.DataFrame({'n': tidy_df.groupby(['title', 'word']).size().sort
 tf_idf = bind_tf_idf(frequency_df,'word','title','n').sort_values(by='tf_idf', ascending=False)
 #print(tf_idf[['title','word','tf_idf']].head(15))
 
-"""
+
 #--------N-grams and analyzing n-grams--------#
 
 #---defining the function to remove punctuation
@@ -78,8 +80,9 @@ for ind in new_dataset_df.index:
     title = new_dataset_df['title'][ind]
     for text in new_dataset_df.text:
         for word in generate_N_grams(remove_punctuation(text),2):
-            df1 = {'title': title, 'bigram': word}
-            bigram_df = bigram_df.append(df1, ignore_index = True)
+            df1 = pd.DataFrame({'title': title, 'bigram': word}, index=[0])
+            bigram_df = pd.concat([bigram_df, df1], ignore_index = True)
+#print(bigram_df)
 
 #---tf and tf-idf for bigrams
 tf_bigram_df = pd.DataFrame({'n': bigram_df.groupby(['title', 'bigram'])
@@ -89,7 +92,7 @@ tf_bigram_df = pd.DataFrame({'n': bigram_df.groupby(['title', 'bigram'])
 tf_idf_bigram = bind_tf_idf(tf_bigram_df,'bigram','title','n').sort_values(by='tf_idf', ascending=False) #all idf 0 -- check later
 #print(tf_idf_bigram[['title','bigram','tf_idf']].head(15))
 
-"""
+
 #--------Document-term matrices and corpuses--------#
 
 #---text to dtm
@@ -97,6 +100,10 @@ vec = CountVectorizer(stop_words=list(stopwords.words('hungarian')))
 dtm = vec.fit_transform(new_dataset_df['text'])
 dtm_df = pd.DataFrame(dtm.toarray(), columns=vec.get_feature_names(), index=new_dataset_df['title'])
 #print(dtm_df)
+
+#---text to dtm using tf-idf
+tf_idf_vectorizer = TfidfVectorizer(stop_words=list(stopwords.words('hungarian')))
+tf_idf_dtm = tf_idf_vectorizer.fit_transform(new_dataset_df['text'])
 
 #---dtm to tidy text format
 tidied_dtm_df = (dtm_df
@@ -108,45 +115,63 @@ tidied_dtm_df = (dtm_df
 
 #--------Latent Dirichlet Allocation--------#
 
-#https://medium.com/@prashanthsri12/topic-modeling-in-python-using-latent-dirichlet-allocation-lda-61001ba51124
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.decomposition import LatentDirichletAllocation
-import numpy as np
-
 
 lda = LatentDirichletAllocation(n_components=3, max_iter=20, random_state=20)
-lda_ = lda.fit(dtm)
-#print(len(lda_.components_),type(lda_.components_))
-for index,topic in enumerate(lda_.components_):
-    print(f'THE TOP 15 WORDS FOR TOPIC #{index}')
-    print([vec.get_feature_names()[i] for i in topic.argsort()[-15:]])
-    print('\n')
-    
-topic_results = lda_.transform(dtm)
-print(topic_results.shape)
-print(topic_results[0])
-
-new_dataset_df['Topic'] = topic_results.argmax(axis=1)
-print(new_dataset_df)
 
 #https://www.analyticsvidhya.com/blog/2021/06/part-3-topic-modeling-and-latent-dirichlet-allocation-lda-using-gensim-and-sklearn/
-tf_idf_vectorizer = TfidfVectorizer(stop_words=list(stopwords.words('hungarian')))
-tf_idf_vect = tf_idf_vectorizer.fit_transform(new_dataset_df['text'])
 
-X_topics = lda.fit_transform(tf_idf_vect)
+
+X_topics = lda.fit_transform(tf_idf_dtm)
 topic_words = lda.components_
 vocab_tf_idf = tf_idf_vectorizer.get_feature_names()
 
-n_top_words = 8
+LDA_topic_words_df = pd.DataFrame(columns=['Topic','Word'])
+index, n_top_words = 0, 10
 for i, topic_dist in enumerate(topic_words):
     sorted_topic_dist = np.argsort(topic_dist)
     topic_words = np.array(vocab_tf_idf)[sorted_topic_dist]
     topic_words = topic_words[:-n_top_words:-1]
-    print("Topic", str(i+1), topic_words)
+    for word in topic_words:
+        LDA_topic_words_df.loc[index,'Topic'] = i
+        LDA_topic_words_df.loc[index,'Word'] = word
+        index += 1
+
+print(LDA_topic_words_df)
     
-topic_results2 = lda.transform(tf_idf_vect)
-new_dataset_df['Topic_tfidf'] = topic_results2.argmax(axis=1)
+topic_results = lda.transform(tf_idf_dtm)
+new_dataset_df['Topic_tfidf'] = topic_results.argmax(axis=1)
 print(new_dataset_df)
+
+LDA_alpha_df = pd.DataFrame(columns=['Text','Topic','Probability'])
+text, topic, index = 0, 0, 0
+for texts in topic_results:
+    for topics in texts:
+        LDA_alpha_df.loc[index,'Text'] = text
+        LDA_alpha_df.loc[index,'Topic'] = topic
+        LDA_alpha_df.loc[index,'Probability'] = topics.round(2)
+        topic += 1
+        index += 1
+    text += 1
+    topic = 0
+    
+
+print(LDA_alpha_df)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
