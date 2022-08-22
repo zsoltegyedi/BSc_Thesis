@@ -8,7 +8,8 @@ from sklearn.decomposition import LatentDirichletAllocation
 import numpy as np
 
 path = 'C:\\Users\zsolt\Desktop\Szakdoga\OV_speeches.csv'
-new_dataset_df = pd.read_csv(path, encoding='latin1', sep=';')
+path1 = 'C:\\Users\zsolt\Desktop\Szakdoga\OV_speeches1.csv'
+new_dataset_df = pd.read_csv(path, encoding='utf-8', sep=';')
 
 
 dataset = """
@@ -45,7 +46,7 @@ stop_words_df = pd.DataFrame({'word':hungarian_stops})
 
 merge_df = pd.merge(tidy_df,stop_words_df, how='outer', left_on='word', right_on='word', indicator = True)
 dataset_without_stopwords = merge_df.loc[merge_df['_merge']=='left_only']
-
+#print(dataset_without_stopwords)
 
 #--------Term frequency and tf-idf--------#
 
@@ -98,7 +99,7 @@ tf_idf_bigram = bind_tf_idf(tf_bigram_df,'bigram','title','n').sort_values(by='t
 #---text to dtm
 vec = CountVectorizer(stop_words=list(stopwords.words('hungarian')))
 dtm = vec.fit_transform(new_dataset_df['text'])
-dtm_df = pd.DataFrame(dtm.toarray(), columns=vec.get_feature_names(), index=new_dataset_df['title'])
+dtm_df = pd.DataFrame(dtm.toarray(), columns=vec.get_feature_names_out(), index=new_dataset_df['title'])
 #print(dtm_df)
 
 #---text to dtm using tf-idf
@@ -118,12 +119,9 @@ tidied_dtm_df = (dtm_df
 
 lda = LatentDirichletAllocation(n_components=3, max_iter=20, random_state=20)
 
-#https://www.analyticsvidhya.com/blog/2021/06/part-3-topic-modeling-and-latent-dirichlet-allocation-lda-using-gensim-and-sklearn/
-
-
 X_topics = lda.fit_transform(tf_idf_dtm)
 topic_words = lda.components_
-vocab_tf_idf = tf_idf_vectorizer.get_feature_names()
+vocab_tf_idf = tf_idf_vectorizer.get_feature_names_out()
 
 LDA_topic_words_df = pd.DataFrame(columns=['Topic','Word'])
 index, n_top_words = 0, 10
@@ -142,34 +140,87 @@ topic_results = lda.transform(tf_idf_dtm)
 new_dataset_df['Topic_tfidf'] = topic_results.argmax(axis=1)
 print(new_dataset_df)
 
-LDA_alpha_df = pd.DataFrame(columns=['Text','Topic','Probability'])
+LDA_gamma_df = pd.DataFrame(columns=['Text','Topic','Probability'])
 text, topic, index = 0, 0, 0
 for texts in topic_results:
     for topics in texts:
-        LDA_alpha_df.loc[index,'Text'] = text
-        LDA_alpha_df.loc[index,'Topic'] = topic
-        LDA_alpha_df.loc[index,'Probability'] = topics.round(2)
+        LDA_gamma_df.loc[index,'Text'] = text
+        LDA_gamma_df.loc[index,'Topic'] = topic
+        LDA_gamma_df.loc[index,'Probability'] = topics.round(2)
         topic += 1
         index += 1
     text += 1
     topic = 0
     
 
-print(LDA_alpha_df)
+print(LDA_gamma_df)
+
+
+#--------Correlated Topic Model--------#
+
+
+import tomotopy as tp
+import nltk
+
+porter_stemmer = nltk.PorterStemmer().stem
+hun_stops = set(porter_stemmer(w) for w in stopwords.words('hungarian'))
+corpus = tp.utils.Corpus(
+    tokenizer=tp.utils.SimpleTokenizer(porter_stemmer), 
+    stopwords=lambda x: x in hun_stops or len(x) <= 2
+)
+corpus.process(open('OV_speeches1.txt', encoding='utf-8'))
 
 
 
+CTM = tp.CTModel(tw=tp.TermWeight.IDF, k=3, seed=20, corpus=corpus)
+CTM.train(20)
+
+doc_topic_dists = [doc.get_topics(top_n=1) for doc in CTM.docs]
+CTM_gamma_df = pd.DataFrame(columns=['Text','Topic','Probability'])
+index =  0
+for doc in doc_topic_dists:
+    for data in doc:
+        CTM_gamma_df.loc[index,'Text'] = index
+        CTM_gamma_df.loc[index,'Topic'] = data[0]
+        CTM_gamma_df.loc[index,'Probability'] = data[1]
+        topic += 1
+        index += 1
+print(CTM_gamma_df)
+
+CTM_topic_words_df = pd.DataFrame(columns=['Topic','Word'])
+i = 0
+for k in range(CTM.k):
+    for word, _ in CTM.get_topic_words(k, top_n=10):
+        CTM_topic_words_df.loc[i,'Topic'] = k
+        CTM_topic_words_df.loc[i,'Word'] = word
+        i += 1
+print(CTM_topic_words_df)
 
 
+# VISUALIZATION FOR CTM
+"""
+from pyvis.network import Network
+
+g = Network(width=800, height=800, font_color="#333")
+correl = CTM.get_correlations().reshape([-1])
+correl.sort()
+top_tenth = CTM.k * (CTM.k - 1) // 10
+top_tenth = correl[-CTM.k - top_tenth]
 
 
+for k in range(CTM.k):
+    label = "#{}".format(k)
+    title= ' '.join(word for word, _ in CTM.get_topic_words(k, top_n=10))
+    print('Topic', label, title)
+    g.add_node(k, label=label, title=title, shape='ellipse')
+    for l, correlation in zip(range(k - 1), CTM.get_correlations(k)):
+        if correlation < top_tenth: continue
+        g.add_edge(k, l, value=float(correlation), title='{:.02}'.format(correlation))
 
-
-
-
-
-
-
+g.barnes_hut(gravity=-1000, spring_length=20)
+g.show_buttons()
+g.show("topic_network.html")
+"""
 
 
 
