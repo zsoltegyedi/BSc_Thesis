@@ -168,7 +168,7 @@ corpus = tp.utils.Corpus(
     tokenizer=tp.utils.SimpleTokenizer(porter_stemmer), 
     stopwords=lambda x: x in hun_stops or len(x) <= 2
 )
-corpus.process(open('OV_speeches1.txt', encoding='utf-8'))
+corpus.process(open('C:\\Users\zsolt\Desktop\Szakdoga\OV_speeches1.txt', encoding='utf-8'))
 
 
 
@@ -223,15 +223,50 @@ g.show("topic_network.html")
 """
 
 
+#--------Latent Semantic Analysis--------#
+
+#https://machinelearninggeek.com/latent-semantic-indexing-using-scikit-learn/
+
+from sklearn.decomposition import TruncatedSVD
+
+lsa = TruncatedSVD(n_components=3, n_iter=20, random_state=20)
+
+lsa_data = lsa.fit_transform(tf_idf_dtm)
+
+# Print the topics with their terms
+terms = tf_idf_vectorizer.get_feature_names_out()
+lsa_topic_words_df = pd.DataFrame(columns=['Topic','Word'])
+i = 0
+for index, component in enumerate(lsa.components_):
+    zipped = zip(terms, component)
+    top_terms_key = sorted(zipped, key = lambda t: t[1], reverse=True)[:10]
+    top_terms_list = list(dict(top_terms_key).keys())
+    #print("Topic "+str(index)+": ",top_terms_list)
+    for word in top_terms_list:
+        lsa_topic_words_df.loc[i,'Topic'] = index
+        lsa_topic_words_df.loc[i,'Word'] = word
+        i += 1
+print(lsa_topic_words_df)        
 
 
+lsa_topic_results = lsa.transform(tf_idf_dtm)
+lsa_gamma_df = pd.DataFrame(columns=['Text','Topic','Probability'])
+text, topic, index = 0, 0, 0
+for texts in lsa_topic_results:
+    for topics in texts:
+        lsa_gamma_df.loc[index,'Text'] = text
+        lsa_gamma_df.loc[index,'Topic'] = topic
+        lsa_gamma_df.loc[index,'Probability'] = topics.round(2)
+        topic += 1
+        index += 1
+    text += 1
+    topic = 0
+print(lsa_gamma_df)
 
+#Visualisation of sigmas
+"""
+Sigma = lsa.singular_values_
 
-
-
-
-
-
-
-
-
+import seaborn as sns
+sns.barplot(x=list(range(len(Sigma))), y = Sigma)
+"""
